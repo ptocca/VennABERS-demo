@@ -1,9 +1,12 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Aug 30 10:14:00 2017
-
-@author: Paolo
-"""
+# Straight-forward implementation of IVAP algorithm described in:
+# Large-scale probabilistic prediction with and without validity guarantees, Vovk et al.
+# https://arxiv.org/pdf/1511.00213.pdf
+#
+# Paolo Toccaceli
+#
+# https://github.com/ptocca/VennABERS
+#
+# 2020-07-09: Fixed bug in p0 calculation
 
 import numpy as np
 
@@ -12,11 +15,14 @@ import numpy as np
 def push(x,stack):
     stack.append(x)
 
+    
 def pop(stack):
     return stack.pop()
 
+
 def top(stack):
     return stack[-1]
+
 
 def nextToTop(stack):
     return stack[-2]
@@ -28,6 +34,7 @@ def nonleftTurn(a,b,c):
     d2 = c-b
     return np.cross(d1,d2)<=0
 
+
 def nonrightTurn(a,b,c):   
     d1 = b-a
     d2 = c-b
@@ -38,6 +45,7 @@ def slope(a,b):
     ax,ay = a
     bx,by = b
     return (by-ay)/(bx-ax)
+
 
 def notBelow(t,p1,p2):
     p1x,p1y = p1
@@ -64,6 +72,7 @@ def algorithm1(P):
         push(P[i],S)
     return S
 
+
 def algorithm2(P,S):
     global kPrime
     
@@ -81,10 +90,9 @@ def algorithm2(P,S):
         push(P[i-1],Sprime)
     return F1
 
+
 def algorithm3(P):
     global kPrime
-    
-    P[kPrime+1] = P[kPrime]+np.array((1.0,0.0))
 
     S = []
     push(P[kPrime+1],S)
@@ -94,6 +102,7 @@ def algorithm3(P):
             pop(S)
         push(P[i],S)
     return S
+
 
 def algorithm4(P,S):
     global kPrime
@@ -110,7 +119,8 @@ def algorithm4(P,S):
         while len(Sprime)>1 and nonrightTurn(P[i],top(Sprime),nextToTop(Sprime)):
             pop(Sprime)
         push(P[i],Sprime)
-    return F0[1:]
+    return F0
+
 
 def prepareData(calibrPoints):
     global kPrime
@@ -135,25 +145,30 @@ def prepareData(calibrPoints):
     
     return yPrime,yCsd,xPrime,ptsUnique
 
-def computeF(xPrime,yCsd):    
+
+def computeF(xPrime,yCsd):
+    global kPrime
     P = {0:np.array((0,0))}
     P.update({i+1:np.array((k,v)) for i,(k,v) in enumerate(zip(xPrime,yCsd))})
     
     S = algorithm1(P)
     F1 = algorithm2(P,S)
     
-    # P = {}
-    # P.update({i+1:np.array((k,v)) for i,(k,v) in enumerate(zip(xPrime,yCsd))})    
+    P = {0:np.array((0,0))}
+    P.update({i+1:np.array((k,v)) for i,(k,v) in enumerate(zip(xPrime,yCsd))})    
+    P[kPrime+1] = P[kPrime] + np.array((1.0,0.0))    # The paper says (1,1)
     
     S = algorithm3(P)
     F0 = algorithm4(P,S)
     
     return F0,F1
 
+
 def getFVal(F0,F1,ptsUnique,testObjects):
-    pos0 = np.searchsorted(ptsUnique[1:],testObjects,side='right')
-    pos1 = np.searchsorted(ptsUnique[:-1],testObjects,side='left')+1
+    pos0 = np.searchsorted(ptsUnique,testObjects,side='left')
+    pos1 = np.searchsorted(ptsUnique[:-1],testObjects,side='right')+1
     return F0[pos0],F1[pos1]
+
 
 def ScoresToMultiProbs(calibrPoints,testObjects):
     # sort the points, transform into unique objects, with weights and updated values
@@ -166,82 +181,3 @@ def ScoresToMultiProbs(calibrPoints,testObjects):
     p0,p1 = getFVal(F0,F1,ptsUnique,testObjects)
                     
     return p0,p1
-
-def computeF1(yCsd,xPrime):
-    global kPrime
-    
-    P = {0:np.array((0,0))}
-    P.update({i+1:np.array((k,v)) for i,(k,v) in enumerate(zip(xPrime,yCsd))})
-    
-    S = algorithm1(P)
-    F1 = algorithm2(P,S)
-    
-    return F1
-
-
-
-import argparse
-
-APPNAME = 'VennABERS'
-
-def processCommandLine():
-
-    helpText = """This script implements Fast Venn-ABERS probabilistic prediction"
-    """
-    
-    parser = argparse.ArgumentParser(prog=APPNAME,epilog=helpText)
-
-    parser.add_argument('fileName',
-                        nargs=1,
-                        help='name of output file')
-                        
-    parser.add_argument('--calScores','-s',
-                        required=True,
-                        help='name of file containing calibration scores')
-                        
-    parser.add_argument('--calY','-y',
-                        required=True,
-                        help='name of file containing calibration labels {0,1}')
-                        
-    parser.add_argument('--testScores','-t',
-                        required=True,
-                        help='name of file containing test scores.')
-                           
-    argsP = parser.parse_args()    
-    
-    return argsP
-    
-
-import sys
-
-if __name__=='__main__':
-    argsP = processCommandLine()
-    
-    try:
-        calScores = np.loadtxt(argsP.calScores)
-    except:
-        print("!!!! cannot load calibration scores from",argsP.calScores,file=sys.stderr)
-        raise
-
-    try:
-        calY = np.loadtxt(argsP.calY)
-    except:
-        print("!!!! cannot load calibration labels from",argsP.calY,file=sys.stderr)
-        raise
-
-    try:
-        testScores = np.loadtxt(argsP.testScores)
-    except:
-        print("!!!! cannot load test scores from",argsP.testScores,file=sys.stderr)
-        raise
-    
-    # Now that we have loaded all the data, let's run Venn-ABERS
-    calibrPoints = zip(calScores,calY)
-    p0,p1 = ScoresToMultiProbs(calibrPoints,testScores)
-    
-    try:
-        np.savetxt(argsP.fileName[0],np.c_[p0,p1])
-    except:
-        print("!!!! cannot save results in",argsP.fileName,file=sys.stderr)
-        raise
-     
